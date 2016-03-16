@@ -290,7 +290,7 @@
                 xAxis = me.axes[0],
                 yAxis = me.axes[1],
                 y1Axis = me.axes[2],
-                bounds = me.getBoundingClientRect(),
+                bounds = me._bounds = me.getBoundingClientRect(),
                 external = (width && height),
                 uid = (external) ? me.newUID() : me.uid,
                 dataPresent = me.data && me.data.length,
@@ -462,58 +462,63 @@
 
             //create redraw function
             var redraw = function(){
-                var domain, epsilon, nice;
+                if(me.prepared){
+                    var domain, epsilon, nice;
 
-                //setting domains
-                me.axes.forEach(function(axis, key){
-                    nice = axis.nice || (axis.nice === undefined && me.nice);
-                    if(key > 0){
-                        if(axis.domain){ //if axis has predefined domain
-                            axis._scale.domain(translateDomain(axis.domain));
+                    //setting domains
+                    me.axes.forEach(function(axis, key){
+                        nice = axis.nice || (axis.nice === undefined && me.nice);
+                        if(key > 0){
+                            if(axis.domain){ //if axis has predefined domain
+                                axis._scale.domain(translateDomain(axis.domain));
+                            }else{
+                                //set y domain for all data in axis
+                                domain = (dataPresent) ? d3.extent(me.getYs(axis.name)) : [0, 1];
+                                if(nice){
+                                    epsilon = (domain[1] - domain[0]) * 0.02;
+                                    domain = [domain[0] - epsilon, domain[1] + epsilon];
+                                }
+                                axis._scale.domain(domain);
+                                if(nice && typeof(axis._scale.nice) === 'function'){
+                                    axis._scale.nice();
+                                }
+                            }
                         }else{
-                            //set y domain for all data in axis
-                            domain = (dataPresent) ? d3.extent(me.getYs(axis.name)) : [0, 1];
-                            if(nice){
-                                epsilon = (domain[1] - domain[0]) * 0.02;
-                                domain = [domain[0] - epsilon, domain[1] + epsilon];
-                            }
+                            //set predefined x domain or cover all x
+                            domain = me.domain && translateDomain(me.domain) || axis.domain && translateDomain(axis.domain);
+                            domain = (domain) ? domain : (dataPresent) ? d3.extent(me.getXs()) : [0, 1];
                             axis._scale.domain(domain);
-                            if(nice && typeof(axis._scale.nice) === 'function'){
-                                axis._scale.nice();
-                            }
                         }
-                    }else{
-                        //set predefined x domain or cover all x
-                        domain = me.domain && translateDomain(me.domain) || axis.domain && translateDomain(axis.domain);
-                        domain = (domain) ? domain : (dataPresent) ? d3.extent(me.getXs()) : [0, 1];
-                        axis._scale.domain(domain);
-                    }
-                });
+                    });
 
-                //update grids
-                me.axes.forEach(function(axis){
-                    if(axis._grid){
-                        grid.select('.grid.' + axis.name).transition().call(axis._grid);
-                    }
-                });
+                    //update grids
+                    me.axes.forEach(function(axis){
+                        if(axis._grid){
+                            grid.select('.grid.' + axis.name).transition().call(axis._grid);
+                        }
+                    });
 
-                //update axes
-                me.axes.forEach(function(axis){
-                    axes.select('.axis.' + axis.name).transition().call(axis._axis);
-                });
+                    //update axes
+                    me.axes.forEach(function(axis){
+                        axes.select('.axis.' + axis.name).transition().call(axis._axis);
+                    });
 
-                //update lines
-                lines.forEach(function(line, i){
-                    focus.select('.line.l' + i).datum(me.data).transition().attr('d', line);
-                });
+                    //update lines
+                    lines.forEach(function(line, i){
+                        focus.select('.line.l' + i).datum(me.data).transition().attr('d', line);
+                    });
 
-                //update display properties for axes and grid
-                svg.selectAll('.axis path, .axis line').attr('fill', 'none').attr('stroke', '#818181').attr('stroke-width', '1px').attr('shape-rendering', 'crispEdges');
-                svg.selectAll('.grid .tick').attr('stroke', 'lightgrey').attr('stroke-width', '1px').attr('shape-rendering', 'crispEdges');
-                svg.selectAll('.grid path').attr('visibility', 'hidden');
+                    //update display properties for axes and grid
+                    svg.selectAll('.axis path, .axis line').attr('fill', 'none').attr('stroke', '#818181').attr('stroke-width', '1px').attr('shape-rendering', 'crispEdges');
+                    svg.selectAll('.grid .tick').attr('stroke', 'lightgrey').attr('stroke-width', '1px').attr('shape-rendering', 'crispEdges');
+                    svg.selectAll('.grid path').attr('visibility', 'hidden');
+                }else{
+                    me.prepare();
+                }
             };
 
             //do first redraw
+            me.prepared = true;
             redraw();
 
             //if not external svg update redraw
@@ -529,10 +534,8 @@
             svg.select('.focus').attr('fill', 'none').attr('stroke-width', '1px').attr('shape-rendering', 'geometricPrecision');
             svg.selectAll('.line').attr('stroke', function(d, key){ return me.colors[key]; });
 
-            //set flag if prepared
-            if(dataPresent){
-                me.prepared = true;
-            }
+            //set proper value for prepared flag
+            me.prepared = dataPresent;
 
             //return svg
             return svg.node();
@@ -554,8 +557,16 @@
 
         //proxy for size change triggered prepare
         _sizeChanged: function(){
-            this.sizeChanged = true;
-            this.prepare();
+            var bounds = this.getBoundingClientRect(),
+                oldBounds = this._bounds,
+                key;
+            for(key in bounds){
+                if(bounds[key] !== oldBounds[key]){
+                    this.sizeChanged = true;
+                    return this.prepare();
+                }
+            }
+
         },
 
         //checker for redraw
